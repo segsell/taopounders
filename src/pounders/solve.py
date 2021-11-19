@@ -14,7 +14,7 @@ from pounders.solve_auxiliary import solve_subproblem
 def solve_pounders(
     x0: np.ndarray,
     nobs: int,
-    f: callable,
+    criterion: callable,
     delta: float,
     delta_min: float,
     delta_max: float,
@@ -42,8 +42,8 @@ def solve_pounders(
     last_mpoints = 0
 
     xhist[0] = x0
-    fhist[0, :] = f(x0)
-    fnorm[0] = compute_fnorm(fhist[0, :])
+    fhist[0, :] = criterion(x0)
+    fnorm[0] = compute_fnorm(criterion_value=fhist[0, :])
 
     minnorm = fnorm[0]
     minindex = 0
@@ -54,8 +54,8 @@ def solve_pounders(
         x1[i] += delta
 
         xhist[i + 1, :] = x1
-        fhist[i + 1, :] = f(x1)
-        fnorm[i + 1] = compute_fnorm(fhist[i + 1, :])
+        fhist[i + 1, :] = criterion(x1)
+        fnorm[i + 1] = compute_fnorm(criterion_value=fhist[i + 1, :])
 
         if fnorm[i + 1] < minnorm:
             minnorm = fnorm[i + 1]
@@ -86,12 +86,14 @@ def solve_pounders(
         niter += 1
 
         # Solve the subproblem min{Q(s): ||s|| <= 1.0}
-        rslt = solve_subproblem(jac_res, hess_res, gnorm_sub, n)
+        rslt = solve_subproblem(
+            jac_res=jac_res, hess_res=hess_res, gnorm=gnorm_sub, n=n
+        )
 
         qmin = -rslt.fun
         xhist[nhist, :] = xmin + rslt.x * delta
-        fhist[nhist, :] = f(xhist[nhist, :])
-        fnorm[nhist] = compute_fnorm(fhist[nhist, :])
+        fhist[nhist, :] = criterion(xhist[nhist, :])
+        fnorm[nhist] = compute_fnorm(criterion_value=fhist[nhist, :])
         rho = (fnorm[minindex] - fnorm[nhist]) / qmin
 
         nhist += 1
@@ -120,43 +122,43 @@ def solve_pounders(
             q_is_I = 1
             mpoints = 0
             qmat, model_indices, mpoints, q_is_I = find_nearby_points(
-                xhist,
-                xmin,
-                delta,
-                c1,
-                nhist,
-                theta1,
-                model_indices,
-                mpoints,
-                n,
-                q_is_I,
-                qmat,
+                xhist=xhist,
+                xmin=xmin,
+                qmat=qmat,
+                q_is_I=q_is_I,
+                delta=delta,
+                theta1=theta1,
+                c=c1,
+                model_indices=model_indices,
+                n=n,
+                mpoints=mpoints,
+                nhist=nhist,
             )
 
             if mpoints < n:
                 addallpoints = 1
                 xhist, fhist, fnorm, model_indices, mpoints, nhist = improve_model(
-                    xhist,
-                    fhist,
-                    fnorm,
-                    jac_res,
-                    hess_res,
-                    qmat,
-                    model_indices,
-                    minindex,
-                    mpoints,
-                    addallpoints,
-                    n,
-                    nhist,
-                    delta,
-                    f,
+                    xhist=xhist,
+                    fhist=fhist,
+                    fnorm=fnorm,
+                    jac_res=jac_res,
+                    hess_res=hess_res,
+                    qmat=qmat,
+                    model_indices=model_indices,
+                    minindex=minindex,
+                    mpoints=mpoints,
+                    addallpoints=addallpoints,
+                    n=n,
+                    nhist=nhist,
+                    delta=delta,
+                    criterion=criterion,
                 )
 
         # Update the trust region radius
         delta_old = delta
-        norm_x_sub = np.sqrt(np.sum(rslt.x ** 2))
+        xnorm_sub = np.sqrt(np.sum(rslt.x ** 2))
 
-        if rho >= eta1 and norm_x_sub > 0.5 * delta:
+        if rho >= eta1 and xnorm_sub > 0.5 * delta:
             delta = min(delta * gamma1, delta_max)
         elif valid is True:
             delta = max(delta * gamma0, delta_min)
@@ -165,17 +167,17 @@ def solve_pounders(
         q_is_I = 1
         mpoints = 0
         qmat, model_indices, mpoints, q_is_I = find_nearby_points(
-            xhist,
-            xmin,
-            delta,
-            c1,
-            nhist,
-            theta1,
-            model_indices,
-            mpoints,
-            n,
-            q_is_I,
-            qmat,
+            xhist=xhist,
+            xmin=xmin,
+            qmat=qmat,
+            q_is_I=q_is_I,
+            delta=delta,
+            theta1=theta1,
+            c=c1,
+            model_indices=model_indices,
+            n=n,
+            mpoints=mpoints,
+            nhist=nhist,
         )
 
         if mpoints == n:
@@ -183,37 +185,37 @@ def solve_pounders(
         else:
             valid = False
             qmat, model_indices, mpoints, q_is_I = find_nearby_points(
-                xhist,
-                xmin,
-                delta,
-                c2,
-                nhist,
-                theta1,
-                model_indices,
-                mpoints,
-                n,
-                q_is_I,
-                qmat,
+                xhist=xhist,
+                xmin=xmin,
+                qmat=qmat,
+                q_is_I=q_is_I,
+                delta=delta,
+                theta1=theta1,
+                c=c2,
+                model_indices=model_indices,
+                n=n,
+                mpoints=mpoints,
+                nhist=nhist,
             )
 
             if n > mpoints:
                 # Model not valid. Add geometry points
                 addallpoints = n - mpoints
                 xhist, fhist, fnorm, model_indices, mpoints, nhist = improve_model(
-                    xhist,
-                    fhist,
-                    fnorm,
-                    jac_res,
-                    hess_res,
-                    qmat,
-                    model_indices,
-                    minindex,
-                    mpoints,
-                    addallpoints,
-                    n,
-                    nhist,
-                    delta,
-                    f,
+                    xhist=xhist,
+                    fhist=fhist,
+                    fnorm=fnorm,
+                    jac_res=jac_res,
+                    hess_res=hess_res,
+                    qmat=qmat,
+                    model_indices=model_indices,
+                    minindex=minindex,
+                    mpoints=mpoints,
+                    addallpoints=addallpoints,
+                    n=n,
+                    nhist=nhist,
+                    delta=delta,
+                    criterion=criterion,
                 )
 
         model_indices[1 : mpoints + 1] = model_indices[:mpoints]
@@ -221,17 +223,17 @@ def solve_pounders(
         model_indices[0] = minindex
 
         L, Z, N, M, mpoints = add_more_points(
-            xhist,
-            xmin,
-            model_indices,
-            minindex,
-            delta,
-            c2,
-            theta2,
-            n,
-            maxinterp,
-            mpoints,
-            nhist,
+            xhist=xhist,
+            xmin=xmin,
+            model_indices=model_indices,
+            minindex=minindex,
+            delta=delta,
+            c2=c2,
+            theta2=theta2,
+            n=n,
+            maxinterp=maxinterp,
+            mpoints=mpoints,
+            nhist=nhist,
         )
 
         xk = (xhist[model_indices[:mpoints]] - xmin) / delta_old
@@ -249,14 +251,14 @@ def solve_pounders(
                 )
 
         jac_quadratic, hess_quadratic = get_params_quadratic_model(
-            L, Z, N, M, res, mpoints, n, nobs
+            L=L, Z=Z, N=N, M=M, res=res, mpoints=mpoints, n=n, nobs=nobs
         )
         fdiff = jac_quadratic.T + (delta / delta_old) * fdiff
         hess = hess_quadratic + (delta / delta_old) * hess
 
         fmin = fhist[minindex]
         fnorm_min = fnorm[minindex]
-        jac_res, hess_res = calc_res(fdiff, fmin, hess)
+        jac_res, hess_res = calc_res(fdiff=fdiff, fmin=fmin, hess=hess)
 
         solution = xhist[minindex, :]
         gradient = jac_res

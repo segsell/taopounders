@@ -8,9 +8,9 @@ from scipy.optimize import Bounds
 from scipy.optimize import minimize
 
 
-def compute_fnorm(res: np.ndarray) -> np.ndarray:
-    """Residual norm."""
-    return np.dot(res, res)
+def compute_fnorm(criterion_value: np.ndarray) -> np.ndarray:
+    """Returns norm of the criterion function value."""
+    return np.dot(criterion_value, criterion_value)
 
 
 def calc_res(
@@ -61,15 +61,15 @@ def solve_subproblem(
 def find_nearby_points(
     xhist: np.ndarray,
     xmin: np.ndarray,
-    delta: float,
-    c: float,
-    nhist: int,
-    theta1: float,
-    model_indices: np.ndarray,
-    mpoints: int,
-    n: int,
-    q_is_I: int,
     qmat: np.ndarray,
+    q_is_I: int,
+    delta: float,
+    theta1: float,
+    c: float,
+    model_indices: np.ndarray,
+    n: int,
+    mpoints: int,
+    nhist: int,
 ) -> Tuple[np.ndarray, np.ndarray, int, int]:
     """Find nearby points."""
     for i in range(nhist - 1, -1, -1):
@@ -112,7 +112,7 @@ def improve_model(
     n: int,
     nhist: int,
     delta: float,
-    f: callable,
+    criterion: callable,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """Improve the model"""
     minindex_internal = 0
@@ -137,32 +137,32 @@ def improve_model(
 
         if addallpoints != 0:
             xhist, fhist, fnorm, model_indices, mpoints, nhist = _add_point(
-                xhist,
-                fhist,
-                fnorm,
-                qtmp,
-                model_indices,
-                minindex,
-                i,
-                mpoints,
-                nhist,
-                delta,
-                f,
+                xhist=xhist,
+                fhist=fhist,
+                fnorm=fnorm,
+                qtmp=qtmp,
+                model_indices=model_indices,
+                minindex=minindex,
+                index=i,
+                mpoints=mpoints,
+                nhist=nhist,
+                delta=delta,
+                criterion=criterion,
             )
 
     if addallpoints == 0:
         xhist, fhist, fnorm, model_indices, mpoints, nhist = _add_point(
-            xhist,
-            fhist,
-            fnorm,
-            qtmp,
-            model_indices,
-            minindex,
-            minindex_internal,
-            mpoints,
-            nhist,
-            delta,
-            f,
+            xhist=xhist,
+            fhist=fhist,
+            fnorm=fnorm,
+            qtmp=qtmp,
+            model_indices=model_indices,
+            minindex=minindex,
+            index=minindex_internal,
+            mpoints=mpoints,
+            nhist=nhist,
+            delta=delta,
+            criterion=criterion,
         )
 
     return xhist, fhist, fnorm, model_indices, mpoints, nhist
@@ -188,7 +188,7 @@ def add_more_points(
 
     for i in range(n + 1):
         M[i, 1:] = (xhist[model_indices[i], :] - xmin) / delta
-        N[i, :] = _evaluate_phi(M[i, 1:], n)
+        N[i, :] = _evaluate_phi(x=M[i, 1:], n=n)
 
     # Now we add points until we have maxinterp starting with the most recent ones
     point = nhist - 1
@@ -217,7 +217,7 @@ def add_more_points(
             continue
 
         M[mpoints, 1:] = (xhist[point] - xmin) / delta
-        N[mpoints, :] = _evaluate_phi(M[mpoints, 1:], n)
+        N[mpoints, :] = _evaluate_phi(x=M[mpoints, 1:], n=n)
 
         Q_tmp = np.zeros((7, 7))
         Q_tmp[:7, : n + 1] = M
@@ -342,7 +342,7 @@ def _add_point(
     mpoints: int,
     nhist: int,
     delta: float,
-    f: callable,
+    criterion: callable,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """Add point."""
     # Create new vector in history: X[newidx] = X[index] + delta * X[index]
@@ -350,7 +350,7 @@ def _add_point(
     xhist[nhist, :] = delta * xhist[nhist, :] + xhist[minindex]
 
     # Compute value of new vector
-    res = f(xhist[nhist])
+    res = criterion(xhist[nhist])
     fsum = compute_fnorm(res)
     fhist[nhist, :] = res
     fnorm[nhist] = fsum
