@@ -28,13 +28,36 @@ def solve_pounders(
     c2: int,
     gnorm_sub: float,
 ) -> Tuple[np.ndarray, np.ndarray]:
+    """Minimize criterion function using POUNDERS.
+
+    Args:
+        x0 (np.ndarray): Initial guess of the parameter vector. Starting points.
+        nobs (int): Number of observations/evaluation points.
+        criterion (callable): Criterion function to be minimized.
+        delta (float): Delta, initial trust-region radius.
+        delta_min (float): Minimum value for delta.
+        delta_max (float): Maximum value for delta.
+        gamma0 (float): Gamma_0.
+        gamma1 (float): Gamma_1.
+        theta1 (float): Theta_1.
+        theta2 (float): Theta_2.
+        eta0 (float): Eta_0.
+        eta1 (float): Eta_1.
+        c1 (float): C_1. Equal to sqrt(*nparams*) by default.
+        c2 (int)): C_2. Equal to 10 by default.
+        gnorm_sub (float): Gradient norm used in the subproblem.
+
+    Returns:
+        Tuple:
+        - solution (np.ndarray): Solution vector.
+        - gradient (np.ndarray): Gradient associated with the solution vector.
+    """
     n = x0.shape[0]  # number of model parameters
     maxinterp = 2 * n + 1  # max number of interpolation points
 
     xhist = np.zeros((1000, n))
     fhist = np.zeros((1000, nobs))
     fnorm = np.zeros(1000)
-    fdiff = np.zeros((n, nobs))
     hess = np.zeros((nobs, n, n))
     model_indices = np.zeros(maxinterp, dtype=int)
 
@@ -240,13 +263,13 @@ def solve_pounders(
         res = np.zeros((maxinterp, nobs))
 
         for j in range(nobs):
-            workk = np.dot(xk, hess[j, :, :])
+            xk_hess = np.dot(xk, hess[j, :, :])
 
             for i in range(mpoints):
                 res[i, j] = (
                     -fmin[j]
                     - np.dot(fdiff[:, j], xk[i, :])
-                    - 0.5 * np.dot(workk[i, :], xk[i, :])
+                    - 0.5 * np.dot(xk_hess[i, :], xk[i, :])
                     + fhist[model_indices[i], j]
                 )
 
