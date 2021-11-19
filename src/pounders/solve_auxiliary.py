@@ -8,14 +8,14 @@ from scipy.optimize import Bounds
 from scipy.optimize import minimize
 
 
-def compute_fnorm(criterion_value: np.ndarray) -> np.ndarray:
+def compute_fnorm(criterion_value: np.ndarray) -> float:
     """Returns norm of the criterion function value.
 
     Args:
         criterion_value (np.ndarray): Value of the criterion function.
 
     Returns:
-        (np.ndarray): Norm of the criterion function
+        (float): Norm of the criterion function
     """
     return np.dot(criterion_value, criterion_value)
 

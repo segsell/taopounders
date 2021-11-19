@@ -33,6 +33,7 @@ eta1 = 0.1
 c1 = np.sqrt(x0.shape[0])
 c2 = 10
 gnorm_sub = 1e-4
+maxiter = 50
 
 solution, gradient = solve_pounders(
     x0,
@@ -50,4 +51,5 @@ solution, gradient = solve_pounders(
     c1,
     c2,
     gnorm_sub,
+    maxiter,
 )

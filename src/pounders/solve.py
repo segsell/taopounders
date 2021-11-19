@@ -27,6 +27,7 @@ def solve_pounders(
     c1: float,
     c2: int,
     gnorm_sub: float,
+    maxiter: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Minimize criterion function using POUNDERS.
 
@@ -88,6 +89,7 @@ def solve_pounders(
     fmin = fhist[minindex, :]
     fnorm_min = minnorm
 
+    # centering around new trust-region and normalize to [-1, 1]
     indices_not_min = [i for i in range(n + 1) if i != minindex]
     xk = (xhist[indices_not_min, :] - xmin) / delta
     fdiff = fhist[indices_not_min, :] - fmin
@@ -114,17 +116,18 @@ def solve_pounders(
         )
 
         qmin = -rslt.fun
-        xhist[nhist, :] = xmin + rslt.x * delta
+        xplus = xmin + rslt.x * delta
+        xhist[nhist, :] = xplus
         fhist[nhist, :] = criterion(xhist[nhist, :])
         fnorm[nhist] = compute_fnorm(criterion_value=fhist[nhist, :])
-        rho = (fnorm[minindex] - fnorm[nhist]) / qmin
+        rho = (fnorm[minindex] - fnorm[nhist]) / qmin  # -rslt.fun
 
         nhist += 1
 
         # Update the center
         if (rho >= eta1) or (rho > eta0 and valid is True):
             # Update model to reflect new base point
-            x1 = (xhist[nhist, :] - xmin) / delta
+            x1 = (xplus - xmin) / delta
 
             fdiff += np.dot(hess, x1).T
             fmin += 0.5 * np.dot(np.dot(x1, hess), x1) + np.dot(x1, fdiff)
@@ -287,6 +290,12 @@ def solve_pounders(
         gradient = jac_res
         gnorm = np.linalg.norm(gradient)
         gnorm *= delta
+
+        if gnorm < 1e-2:
+            reason = False
+
+        if niter > maxiter:
+            reason = False
 
         print(f"solution: {solution}")
 
