@@ -1,5 +1,6 @@
 from functools import partial
 from typing import Dict
+from typing import Optional
 from typing import Tuple
 
 import numpy as np
@@ -50,10 +51,7 @@ def calc_res(
 
 
 def solve_subproblem(
-    jac_res: np.ndarray,
-    hess_res: np.ndarray,
-    gnorm: float,
-    n: int,
+    jac_res: np.ndarray, hess_res: np.ndarray, gnorm: Optional[float] = 1e-4
 ) -> Dict[str, np.ndarray]:
     """Solve the subproblem.
 
@@ -66,6 +64,7 @@ def solve_subproblem(
     Returns:
         Dict[str, np.ndarray]: Result dictionary.
     """
+    n = jac_res.shape[0]
     x0 = np.zeros(n)
 
     # If no bounds are specified, use [-1, 1]
@@ -78,11 +77,10 @@ def solve_subproblem(
     rslt = minimize(
         evaluate_subproblem,
         x0,
-        method="trust-constr",
+        method="L-BFGS-B",
         jac=True,
-        hess="2-point",
         bounds=bounds,
-        options={"xtol": 1.0e-10, "gtol": gnorm},
+        options={"gtol": gnorm},
     )
 
     return rslt

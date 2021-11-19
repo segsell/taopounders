@@ -111,9 +111,13 @@ def solve_pounders(
         niter += 1
 
         # Solve the subproblem min{Q(s): ||s|| <= 1.0}
-        rslt = solve_subproblem(
-            jac_res=jac_res, hess_res=hess_res, gnorm=gnorm_sub, n=n
-        )
+        if niter == 20:
+            input_dict = {"jac_res": jac_res, "hess_res": hess_res}
+            import pandas as pd
+
+            pd.to_pickle(input_dict, "inputs.pkl")
+
+        rslt = solve_subproblem(jac_res=jac_res, hess_res=hess_res, gnorm=gnorm_sub)
 
         qmin = -rslt.fun
         xplus = xmin + rslt.x * delta
