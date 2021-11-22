@@ -11,10 +11,8 @@ from scipy.optimize import minimize
 
 def compute_fnorm(criterion_value: np.ndarray) -> float:
     """Returns norm of the criterion function value.
-
     Args:
         criterion_value (np.ndarray): Value of the criterion function.
-
     Returns:
         (float): Norm of the criterion function
     """
@@ -25,14 +23,12 @@ def calc_res(
     fdiff: np.ndarray, fmin: np.ndarray, hess: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Calculate residuals of the Jacobian and Hessian.
-
     Args:
         fdiff (np.ndarray): Difference between the criterion function values and *fmin*.
             Shape (*n*, *nobs*)
         fmin (np.ndarray): Values of criterion function associated with
             parameter vector x that yields the lowest criterion function norm.
         hess (np.ndarray): Hessian matrix. Shape (*nobs*, *n*, *n*).
-
     Returns:
         Tuple:
         - jac_res (np.ndarray): Residuals of the Jacobian. Shape (*n*,).
@@ -51,24 +47,73 @@ def calc_res(
 
 
 def solve_subproblem(
-    jac_res: np.ndarray, hess_res: np.ndarray, gnorm: Optional[float] = 1e-4
+    solution: np.ndarray,
+    delta: np.ndarray,
+    jac_res: np.ndarray,
+    hess_res: np.ndarray,
+    gtol: float = 1e-4,
+    solver: str = "trust-constr",
+    lower_bounds: Optional[np.ndarray] = None,
+    upper_bounds: Optional[np.ndarray] = None,
 ) -> Dict[str, np.ndarray]:
     """Solve the subproblem.
 
     Args:
+        solution (np.ndarray): Current solution vector.
+        delta (float): Current trust region radius.
         jac_res (np.ndarray): Residuals of the Jacobian. Shape (*n*,).
         hess_res (np.ndarray): Residuals of the Hessian. Shape (*n*, *n*).
-        gnorm (float): Gradient norm.
-        n (int): Number of parameters.
+        gtol (float): Gradient tolerance. Stopping criterion.
+        solver (str): Minimizer used to solve the bound-constraint subproblem.
+            Currently, three solvers from the scipy library are supported.
+            - "trust-constr"
+            - "L-BFGS-B"
+            - "SLSQP"
+        lower_bounds (np.ndarray): Lower bounds for the subproblem.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to -1 if not provided by the user.
+        upper_bounds (np.ndarray): Upper bounds for the subproblem.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to 1 if not provided by the user.
 
     Returns:
         Dict[str, np.ndarray]: Result dictionary.
     """
+    # Initial guess
     n = jac_res.shape[0]
     x0 = np.zeros(n)
 
-    # If no bounds are specified, use [-1, 1]
-    bounds = Bounds(-np.ones(n), np.ones(n))
+    # Normalize bounds. If not specified, use unit cube [-1, 1]
+    if lower_bounds is not None:
+        lower_bounds = (lower_bounds - solution) / delta
+        lower_bounds[lower_bounds < -1] = -1
+    else:
+        lower_bounds = -np.ones(n)
+
+    if upper_bounds is not None:
+        upper_bounds = (upper_bounds - solution) / delta
+        upper_bounds[upper_bounds > 1] = 1
+    else:
+        upper_bounds = np.ones(n)
+
+    # Check if bounds valid
+    if np.max(lower_bounds - upper_bounds) > 1e-10:
+        raise ValueError("Upper bounds < lower bounds in subproblem.")
+    if np.max(lower_bounds - x0) > 1e-10:
+        raise ValueError("Initial guess < lower bounds in subproblem.")
+    if np.max(x0 - upper_bounds) > 1e-10:
+        raise ValueError("Initial guess > upper bounds in subproblem.")
+
+    bounds = Bounds(lower_bounds, upper_bounds)
+
+    if solver == "trust-constr":
+        solver_args = {"hess": "2-point"}
+        options = {"xtol": 1e-10, "gtol": gtol}
+    elif solver in ["L-BFGS-B", "SLSQP"]:
+        solver_args = {}
+        options = {"gtol": gtol}
+    else:
+        raise ValueError("Specififed subproblem solver is not supported.")
 
     evaluate_subproblem = partial(
         _evaluate_obj_and_grad, jac_res=jac_res, hess_res=hess_res
@@ -77,11 +122,18 @@ def solve_subproblem(
     rslt = minimize(
         evaluate_subproblem,
         x0,
-        method="L-BFGS-B",
+        method=solver,
         jac=True,
         bounds=bounds,
-        options={"gtol": gnorm},
+        **solver_args,
+        options=options,
     )
+
+    # Test bounds post-solution
+    if np.max(lower_bounds - rslt.x) > 1e-5:
+        raise ValueError("Subproblem solution < lower bounds.")
+    if np.max(rslt.x - upper_bounds) > 1e-5:
+        raise ValueError("Subproblem solution > upper bounds.")
 
     return rslt
 
@@ -100,7 +152,6 @@ def find_nearby_points(
     nhist: int,
 ) -> Tuple[np.ndarray, np.ndarray, int, int]:
     """Find nearby points.
-
     Args:
         xhist (np.ndarray): Array storing all candidates of the parameter vector.
         xmin (np.ndarray): Values of parameter vector x that yield the lowest
@@ -116,7 +167,6 @@ def find_nearby_points(
         n (int): Number of parameters.
         mpoints (int): Current number of model points.
         nhist (int): Current number candidate solutions for x.
-
     Returns:
         Tuple:
         - qmat (np.ndarray): Q matrix.
@@ -167,6 +217,8 @@ def improve_model(
     nhist: int,
     delta: float,
     criterion: callable,
+    lower_bounds: np.ndarray,
+    upper_bounds: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """Improve the model.
 
@@ -190,6 +242,12 @@ def improve_model(
         nhist (int): Current number candidate solutions for x.
         delta (float): Delta, current trust-region radius.
         criterion (callable): Criterion function.
+        lower_bounds (np.ndarray): Lower bounds.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to -1 if not provided by the user.
+        upper_bounds (np.ndarray): Upper bounds.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to 1 if not provided by the user.
 
     Returns:
         Tuple:
@@ -235,6 +293,8 @@ def improve_model(
                 nhist=nhist,
                 delta=delta,
                 criterion=criterion,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
             )
 
     if addallpoints == 0:
@@ -250,6 +310,8 @@ def improve_model(
             nhist=nhist,
             delta=delta,
             criterion=criterion,
+            lower_bounds=lower_bounds,
+            upper_bounds=upper_bounds,
         )
 
     return xhist, fhist, fnorm, model_indices, mpoints, nhist
@@ -269,7 +331,6 @@ def add_more_points(
     nhist: int,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
     """Add more points.
-
     Args:
         xhist (np.ndarray): Array storing all candidates of the parameter
             vector. Shape (1000, *n*).
@@ -286,7 +347,6 @@ def add_more_points(
         maxinterp (int): Maximum number of interpolation points.
         mpoints (int): Current number of model points.
         nhist (int): Current number candidate solutions for x.
-
     Returns:
         Tuple:
         - L (np.ndarray): L matrix. Shape(*maxinterp*, *n* (*n* + 1) / 2).
@@ -374,11 +434,9 @@ def get_params_quadratic_model(
     nobs: int,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Get parameters of quadratic model.
-
     Computes the parameters of the quadratic model Q(x) = c + g'*x + 0.5*x*G*x'
     that satisfies the interpolation conditions Q(X[:,j]) = f(j)
     for j= 1,..., m and with a Hessian matrix of least Frobenius norm.
-
     Args:
         L (np.ndarray): L matrix. Shape(*maxinterp*, *n* (*n* + 1) / 2).
         Z (np.ndarray): Z matrix. Shape(:*mpoints*, *n* + 1 : *mpoints*).
@@ -389,7 +447,6 @@ def get_params_quadratic_model(
         mpoints (int): Current number of model points.
         n (int): Number of parameters.
         nobs (int): Number of observations.
-
     Returns:
         Tuple:
         - jac_quadratic (np.ndarray): Jacobian of the quadratic model.
@@ -437,12 +494,10 @@ def _evaluate_obj_and_grad(
     hess_res: np.ndarray,
 ) -> Tuple[float, np.ndarray]:
     """Returns the objective and gradient of the subproblem.
-
     Args:
         x (np.ndarray): Parameter vector.
         jac_res (np.ndarray): Residuals of the Jacobian. Shape (*n*,).
         hess_res (np.ndarray): Residuals of the Hessian. Shape (*n*, *n*).
-
     Returns:
         Tuple:
         - obj (float): Value of the objective function.
@@ -457,14 +512,11 @@ def _evaluate_obj_and_grad(
 
 def _evaluate_phi(x: np.ndarray, n: int) -> np.ndarray:
     """Evaluate phi.
-
     Phi = .5*[x(1)^2  sqrt(2)*x(1)*x(2) ... sqrt(2)*x(1)*x(n) ...
         ... x(2)^2 sqrt(2)*x(2)*x(3) .. x(n)^2]
-
     Args:
         x (np.ndarray): Parameter vector of shape (*n*,).
         n (int): Number of parameters.
-
     Returns:
         (np.ndarray): Phi vector. Shape (*n* (*n* + 1) / 2,)
     """
@@ -494,6 +546,8 @@ def _add_point(
     nhist: int,
     delta: float,
     criterion: callable,
+    lower_bounds: np.ndarray,
+    upper_bounds: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int, int]:
     """Add point to the model
 
@@ -516,6 +570,12 @@ def _add_point(
         nhist (int): Current number candidate solutions for x.
         delta (float): Delta, current trust-region radius.
         criterion (callable): Criterion function.
+        lower_bounds (np.ndarray): Lower bounds.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to -1 if not provided by the user.
+        upper_bounds (np.ndarray): Upper bounds.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to 1 if not provided by the user.
 
     Returns:
         Tuple:
@@ -533,6 +593,12 @@ def _add_point(
     # Create new vector in history: X[newidx] = X[index] + delta * X[index]
     xhist[nhist] = qtmp[:, index]
     xhist[nhist, :] = delta * xhist[nhist, :] + xhist[minindex]
+
+    # Project into feasible region
+    if lower_bounds is not None and upper_bounds is not None:
+        xhist[nhist] = np.median(
+            np.stack([lower_bounds, xhist[nhist], upper_bounds]), axis=0
+        )
 
     # Compute value of new vector
     res = criterion(xhist[nhist])

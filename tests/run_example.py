@@ -50,6 +50,6 @@ solution, gradient = solve_pounders(
     eta1=eta1,
     c1=c1,
     c2=c2,
-    gtol_sub=gtol_sub,
     maxiter=maxiter,
+    gtol_sub=gtol_sub,
 )

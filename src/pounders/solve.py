@@ -1,4 +1,5 @@
 import copy
+from typing import Optional
 from typing import Tuple
 
 import numpy as np
@@ -26,11 +27,13 @@ def solve_pounders(
     eta1: float,
     c1: float,
     c2: int,
-    gnorm_sub: float,
     maxiter: int,
+    gtol_sub: float,
+    solver_sub: str = "trust-constr",
+    lower_bounds: Optional[np.ndarray] = None,
+    upper_bounds: Optional[np.ndarray] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Minimize criterion function using POUNDERS.
-
     Args:
         x0 (np.ndarray): Initial guess of the parameter vector. Starting points.
         nobs (int): Number of observations/evaluation points.
@@ -46,7 +49,19 @@ def solve_pounders(
         eta1 (float): Eta_1.
         c1 (float): C_1. Equal to sqrt(*nparams*) by default.
         c2 (int)): C_2. Equal to 10 by default.
-        gnorm_sub (float): Gradient norm used in the subproblem.
+        maxiter (int): Maximum number of iterations. If reached, terminate.
+        gtol_sub (float): Gradient norm used in the subproblem.
+        solver_sub (str): Bound-constraint minimizer for the subproblem.
+            Currently, three solvers from the scipy library are supported.
+            - "trust-constr"
+            - "L-BFGS-B"
+            - "SLSQP"
+        lower_bounds (np.ndarray): Lower bounds.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to -1 if not provided by the user.
+        upper_bounds (np.ndarray): Upper bounds.
+            Must have same length as the initial guess of the
+            parameter vector. Equal to 1 if not provided by the user.
 
     Returns:
         Tuple:
@@ -56,14 +71,22 @@ def solve_pounders(
     n = x0.shape[0]  # number of model parameters
     maxinterp = 2 * n + 1  # max number of interpolation points
 
-    xhist = np.zeros((1000, n))
-    fhist = np.zeros((1000, nobs))
-    fnorm = np.zeros(1000)
+    xhist = np.zeros((maxiter + 1, n))
+    fhist = np.zeros((maxiter + 1, nobs))
+    fnorm = np.zeros(maxiter + 1)
     hess = np.zeros((nobs, n, n))
     model_indices = np.zeros(maxinterp, dtype=int)
 
-    niter = 0
     last_mpoints = 0
+    niter = 0
+
+    if lower_bounds is not None and upper_bounds is not None:
+        if np.max(x0 - upper_bounds) > 1e-10:
+            raise ValueError("Starting points > upper bounds.")
+        if np.max(upper_bounds - x0) > 1e-10:
+            raise ValueError("Starting points < lower bounds.")
+        if np.max(x0 + delta - upper_bounds) > 1e-10:
+            raise ValueError("Starting points + delta > upper bounds.")
 
     xhist[0] = x0
     fhist[0, :] = criterion(x0)
@@ -111,20 +134,23 @@ def solve_pounders(
         niter += 1
 
         # Solve the subproblem min{Q(s): ||s|| <= 1.0}
-        if niter == 20:
-            input_dict = {"jac_res": jac_res, "hess_res": hess_res}
-            import pandas as pd
-
-            pd.to_pickle(input_dict, "inputs.pkl")
-
-        rslt = solve_subproblem(jac_res=jac_res, hess_res=hess_res, gnorm=gnorm_sub)
+        rslt = solve_subproblem(
+            solution=xhist[minindex, :],
+            delta=delta,
+            jac_res=jac_res,
+            hess_res=hess_res,
+            gtol=gtol_sub,
+            solver=solver_sub,
+            lower_bounds=lower_bounds,
+            upper_bounds=upper_bounds,
+        )
 
         qmin = -rslt.fun
         xplus = xmin + rslt.x * delta
         xhist[nhist, :] = xplus
         fhist[nhist, :] = criterion(xhist[nhist, :])
         fnorm[nhist] = compute_fnorm(criterion_value=fhist[nhist, :])
-        rho = (fnorm[minindex] - fnorm[nhist]) / qmin  # -rslt.fun
+        rho = (fnorm[minindex] - fnorm[nhist]) / qmin
 
         nhist += 1
 
@@ -182,6 +208,8 @@ def solve_pounders(
                     nhist=nhist,
                     delta=delta,
                     criterion=criterion,
+                    lower_bounds=lower_bounds,
+                    upper_bounds=upper_bounds,
                 )
 
         # Update the trust region radius
@@ -246,6 +274,8 @@ def solve_pounders(
                     nhist=nhist,
                     delta=delta,
                     criterion=criterion,
+                    lower_bounds=lower_bounds,
+                    upper_bounds=upper_bounds,
                 )
 
         model_indices[1 : mpoints + 1] = model_indices[:mpoints]
@@ -284,7 +314,7 @@ def solve_pounders(
             L=L, Z=Z, N=N, M=M, res=res, mpoints=mpoints, n=n, nobs=nobs
         )
         fdiff = jac_quadratic.T + (delta / delta_old) * fdiff
-        hess = hess_quadratic + (delta / delta_old) * hess
+        hess = hess_quadratic + (delta / delta_old) ** 2 * hess
 
         fmin = fhist[minindex]
         fnorm_min = fnorm[minindex]
